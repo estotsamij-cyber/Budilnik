@@ -42,11 +42,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.IntentCompat
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -288,6 +290,10 @@ fun datesText(a: Alarm): String {
                 Text(toneName, color = Dim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
             }
             Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Вибрация", color = Txt, modifier = Modifier.weight(1f))
+                Switch(a.vibrate, { a = a.copy(vibrate = it) }, colors = sw())
+            }
+            Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Выключать, решив пример", color = Txt, modifier = Modifier.weight(1f))
                 Switch(a.math, { a = a.copy(math = it) }, colors = sw())
             }
@@ -304,6 +310,19 @@ fun datesText(a: Alarm): String {
     }
 }
 
+// Каждая цифра в ячейке одинаковой ширины, иначе при смене цифр строка дёргается влево-вправо
+@Composable fun Mono(t: String, size: TextUnit, modifier: Modifier = Modifier) {
+    val w = with(LocalDensity.current) { (size.toPx() * 0.6f).toDp() }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        t.forEach { ch ->
+            if (ch.isDigit()) Box(Modifier.width(w), Alignment.Center) {
+                Text("$ch", color = Txt, fontSize = size, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
+                    modifier = Modifier.wrapContentWidth(unbounded = true))
+            } else Text("$ch", color = Txt, fontSize = size, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
 fun fmt(ms: Long) = "%02d:%02d.%02d".format(ms / 60000, ms / 1000 % 60, ms / 10 % 100)
 
 object SW {
@@ -317,7 +336,7 @@ object SW {
     val e = SW.base + if (SW.run) now - SW.t0 else 0L
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(64.dp))
-        Text(fmt(e), color = Txt, fontSize = 64.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
+        Mono(fmt(e), 64.sp)
         Spacer(Modifier.height(28.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Round(if (SW.run) "Круг" else "Сброс", Card, Txt) { if (SW.run) SW.laps.add(e) else { SW.base = 0L; SW.laps.clear() } }
@@ -386,9 +405,8 @@ object TM {
                 drawArc(Card, 0f, 360f, false, topLeft = Offset(m, m), size = sz, style = st)
                 drawArc(Acc, -90f, 360f * rem / TM.total, false, topLeft = Offset(m, m), size = sz, style = st)
             }
-            Text(if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%02d:%02d".format(s / 60, s % 60),
-                color = Txt, fontSize = if (s >= 3600) 44.sp else 60.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
-                modifier = Modifier.clickable(enabled = !TM.run) { dlg = true })
+            Mono(if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%02d:%02d".format(s / 60, s % 60),
+                if (s >= 3600) 44.sp else 60.sp, Modifier.clickable(enabled = !TM.run) { dlg = true })
         }
         Spacer(Modifier.height(12.dp))
         Text("Нажми на время, чтобы задать своё", color = Dim, fontSize = 13.sp)

@@ -24,6 +24,7 @@ data class Alarm(
     val mode: Mode = Mode.WEEKLY, val days: Set<Int> = emptySet(), val dates: Set<Long> = emptySet(),
     val monthly: Boolean = false, val math: Boolean = false, val enabled: Boolean = true,
     val tone: String = "", // URI мелодии; пусто = мелодия будильника по умолчанию
+    val vibrate: Boolean = true,
 )
 
 fun Alarm.next(from: LocalDateTime = LocalDateTime.now()): LocalDateTime? {
@@ -42,13 +43,13 @@ fun Alarm.next(from: LocalDateTime = LocalDateTime.now()): LocalDateTime? {
 
 private fun Alarm.toJson() = JSONObject().put("id", id).put("h", hour).put("m", minute).put("l", label)
     .put("mode", mode.name).put("days", JSONArray(days.toList())).put("dates", JSONArray(dates.toList()))
-    .put("mo", monthly).put("math", math).put("on", enabled).put("tone", tone)
+    .put("mo", monthly).put("math", math).put("on", enabled).put("tone", tone).put("vib", vibrate)
 
 private fun JSONObject.toAlarm() = Alarm(
     getInt("id"), getInt("h"), getInt("m"), getString("l"), Mode.valueOf(getString("mode")),
     getJSONArray("days").let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() },
     getJSONArray("dates").let { a -> (0 until a.length()).map { a.getLong(it) }.toSet() },
-    getBoolean("mo"), getBoolean("math"), getBoolean("on"), optString("tone", ""),
+    getBoolean("mo"), getBoolean("math"), getBoolean("on"), optString("tone", ""), optBoolean("vib", true),
 )
 
 object Store {
@@ -63,19 +64,19 @@ object Store {
 
 object Scheduler {
     private fun am(c: Context) = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    private fun pi(c: Context, id: Int, label: String, math: Boolean, kind: String, tone: String = ""): PendingIntent =
+    private fun pi(c: Context, id: Int, label: String, math: Boolean, kind: String, tone: String = "", vib: Boolean = true): PendingIntent =
         PendingIntent.getBroadcast(c, id, Intent(c, AlarmReceiver::class.java).putExtra("id", id).putExtra("label", label)
-            .putExtra("math", math).putExtra("kind", kind).putExtra("tone", tone), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun schedule(c: Context, id: Int, millis: Long, label: String, math: Boolean, kind: String, tone: String = "") {
+            .putExtra("math", math).putExtra("kind", kind).putExtra("tone", tone).putExtra("vib", vib), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun schedule(c: Context, id: Int, millis: Long, label: String, math: Boolean, kind: String, tone: String = "", vib: Boolean = true) {
         val show = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        am(c).setAlarmClock(AlarmManager.AlarmClockInfo(millis, show), pi(c, id, label, math, kind, tone))
+        am(c).setAlarmClock(AlarmManager.AlarmClockInfo(millis, show), pi(c, id, label, math, kind, tone, vib))
     }
     fun cancel(c: Context, id: Int) { am(c).cancel(pi(c, id, "", false, "alarm")) }
     fun set(c: Context, a: Alarm) {
         cancel(c, a.id)
         if (!a.enabled) return
         val t = a.next() ?: return
-        schedule(c, a.id, t.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), a.label, a.math, "alarm", a.tone)
+        schedule(c, a.id, t.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), a.label, a.math, "alarm", a.tone, a.vibrate)
     }
     fun resetAll(c: Context) = Store.load(c).forEach { set(c, it) }
 }
@@ -119,27 +120,29 @@ class AlarmService : Service() {
         val label = if (kind == "timer") "Таймер" else i?.getStringExtra("label").orEmpty()
         val math = i?.getBooleanExtra("math", false) ?: false
         val tone = i?.getStringExtra("tone").orEmpty()
+        val shake = i?.getBooleanExtra("vib", true) ?: true
         h.removeCallbacksAndMessages(null) // второй звонок не должен обрываться таймером первого
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("ring", "Звонок", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) })
         val ring = Intent(this, RingActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            .putExtra("label", label).putExtra("math", math).putExtra("kind", kind).putExtra("tone", tone)
+            .putExtra("label", label).putExtra("math", math).putExtra("kind", kind).putExtra("tone", tone).putExtra("vib", shake)
         val pi = PendingIntent.getActivity(this, 1, ring, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = Notification.Builder(this, "ring").setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(label.ifBlank { "Будильник" }).setContentText("Нажми, чтобы выключить")
             .setCategory(Notification.CATEGORY_ALARM).setFullScreenIntent(pi, true).setContentIntent(pi).setOngoing(true).build()
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         try { startActivity(ring) } catch (_: Exception) {}
-        play(tone)
+        play(tone, shake)
         h.postDelayed({ stopSelf() }, 10 * 60_000L)
         return START_NOT_STICKY
     }
 
-    private fun play(tone: String) {
+    private fun play(tone: String, shake: Boolean) {
         val def = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         // Выбранная мелодия первой, стандартная — запасная: если файл удалён или нет доступа, будильник всё равно зазвонит.
         val uris = listOfNotNull(tone.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }, def)
         mp?.release(); mp = null
+        vib?.cancel(); vib = null
         for (u in uris) {
             val p = MediaPlayer()
             try {
@@ -155,7 +158,7 @@ class AlarmService : Service() {
         h.post(object : Runnable {
             override fun run() { v = minOf(1f, v + 0.05f); mp?.setVolume(v, v); if (v < 1f) h.postDelayed(this, 1500) }
         })
-        vib = getSystemService(Vibrator::class.java).also { it.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0)) }
+        if (shake) vib = getSystemService(Vibrator::class.java).also { it.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0)) }
     }
 
     override fun onDestroy() {

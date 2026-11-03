@@ -27,13 +27,14 @@ class RingActivity : ComponentActivity() {
         val math = intent.getBooleanExtra("math", false)
         val timer = intent.getStringExtra("kind") == "timer"
         val tone = intent.getStringExtra("tone").orEmpty()
+        val shake = intent.getBooleanExtra("vib", true)
         setContent {
             AppTheme {
                 RingScreen(label, math, !timer,
                     onStop = { stopService(Intent(this, AlarmService::class.java)); finish() },
                     onSnooze = {
                         stopService(Intent(this, AlarmService::class.java))
-                        Scheduler.schedule(this, 100000, System.currentTimeMillis() + 10 * 60_000L, label, math, "snooze", tone)
+                        Scheduler.schedule(this, 100000, System.currentTimeMillis() + 10 * 60_000L, label, math, "snooze", tone, shake)
                         finish()
                     })
             }
