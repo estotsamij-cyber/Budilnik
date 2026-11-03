@@ -317,7 +317,7 @@ object SW {
     val e = SW.base + if (SW.run) now - SW.t0 else 0L
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(64.dp))
-        Text(fmt(e), color = Txt, fontSize = 76.sp, fontWeight = FontWeight.Light)
+        Text(fmt(e), color = Txt, fontSize = 64.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
         Spacer(Modifier.height(28.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Round(if (SW.run) "Круг" else "Сброс", Card, Txt) { if (SW.run) SW.laps.add(e) else { SW.base = 0L; SW.laps.clear() } }
@@ -342,14 +342,41 @@ object TM {
     var end by mutableLongStateOf(0L); var run by mutableStateOf(false)
 }
 
+@Composable fun NumField(label: String, v: String, mod: Modifier, on: (String) -> Unit) =
+    TextField(v, { on(it.filter(Char::isDigit).take(2)) }, label = { Text(label) }, singleLine = true, modifier = mod,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+            focusedIndicatorColor = Acc, unfocusedIndicatorColor = Dim))
+
+@Composable fun TimerDialog(init: Long, onOk: (Long) -> Unit, onCancel: () -> Unit) {
+    val s0 = init / 1000
+    var h by remember { mutableStateOf((s0 / 3600).toString()) }
+    var m by remember { mutableStateOf((s0 / 60 % 60).toString()) }
+    var s by remember { mutableStateOf((s0 % 60).toString()) }
+    val total = (h.toLongOrNull() ?: 0L) * 3600 + (m.toLongOrNull() ?: 0L) * 60 + (s.toLongOrNull() ?: 0L)
+    AlertDialog(onDismissRequest = onCancel, containerColor = Card,
+        title = { Text("Время таймера", color = Txt) },
+        confirmButton = { TextButton({ onOk(total * 1000) }, enabled = total > 0) { Text("ОК", color = if (total > 0) Acc else Dim) } },
+        dismissButton = { TextButton(onCancel) { Text("Отмена", color = Dim) } },
+        text = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumField("Часы", h, Modifier.weight(1f)) { h = it }
+                NumField("Мин", m, Modifier.weight(1f)) { m = it }
+                NumField("Сек", s, Modifier.weight(1f)) { s = it }
+            }
+        })
+}
+
 @Composable fun TimerScreen() {
     val c = LocalContext.current
+    var dlg by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(TM.run) {
         while (TM.run) { now = SystemClock.elapsedRealtime(); if (TM.end - now <= 0) { TM.run = false; TM.left = TM.total }; delay(100) }
     }
     val rem = if (TM.run) maxOf(0L, TM.end - now) else TM.left
     val s = (rem + 999) / 1000
+    if (dlg) TimerDialog(TM.total, { ms -> TM.total = ms; TM.left = ms; dlg = false }) { dlg = false }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(64.dp))
         Box(Modifier.size(260.dp), Alignment.Center) {
@@ -359,15 +386,19 @@ object TM {
                 drawArc(Card, 0f, 360f, false, topLeft = Offset(m, m), size = sz, style = st)
                 drawArc(Acc, -90f, 360f * rem / TM.total, false, topLeft = Offset(m, m), size = sz, style = st)
             }
-            Text("%02d:%02d".format(s / 60, s % 60), color = Txt, fontSize = 60.sp, fontWeight = FontWeight.Light)
+            Text(if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%02d:%02d".format(s / 60, s % 60),
+                color = Txt, fontSize = if (s >= 3600) 44.sp else 60.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
+                modifier = Modifier.clickable(enabled = !TM.run) { dlg = true })
         }
-        Spacer(Modifier.height(28.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Spacer(Modifier.height(12.dp))
+        Text("Нажми на время, чтобы задать своё", color = Dim, fontSize = 13.sp)
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(1, 5, 10, 15).forEach { m ->
                 val sel = TM.total == m * 60_000L
-                Box(Modifier.height(44.dp).clip(RoundedCornerShape(22.dp)).background(if (sel) Acc else Card)
-                    .clickable(enabled = !TM.run) { TM.total = m * 60_000L; TM.left = TM.total }.padding(horizontal = 16.dp), Alignment.Center) {
-                    Text("$m мин", color = if (sel) OnAcc else Txt, fontSize = 15.sp)
+                Box(Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(22.dp)).background(if (sel) Acc else Card)
+                    .clickable(enabled = !TM.run) { TM.total = m * 60_000L; TM.left = TM.total }, Alignment.Center) {
+                    Text("$m мин", color = if (sel) OnAcc else Txt, fontSize = 14.sp, maxLines = 1, softWrap = false)
                 }
             }
         }
