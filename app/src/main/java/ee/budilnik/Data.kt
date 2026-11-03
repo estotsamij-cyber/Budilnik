@@ -158,8 +158,8 @@ class AlarmService : Service() {
         nm.notify(2, wn)
         // Wear OS вибрирует один раз на появление уведомления, поэтому, пока звонит будильник, подаём его заново
         h.postDelayed(object : Runnable {
-            override fun run() { nm.notify(2, wn); h.postDelayed(this, 5000) }
-        }, 5000)
+            override fun run() { nm.notify(2, wn); h.postDelayed(this, 2000) }
+        }, 2000)
         try { startActivity(ring) } catch (_: Exception) {}
         play(tone, shake)
         h.postDelayed({ stopSelf() }, 10 * 60_000L)
