@@ -121,6 +121,13 @@ class AlarmService : Service() {
         val math = i?.getBooleanExtra("math", false) ?: false
         val tone = i?.getStringExtra("tone").orEmpty()
         val shake = i?.getBooleanExtra("vib", true) ?: true
+        // Кнопки уведомления на часах: «Выключить» и «Отложить» приходят сюда же
+        val cmd = i?.action
+        if (cmd == "stop" || cmd == "snooze") {
+            if (cmd == "snooze") Scheduler.schedule(this, 100000, System.currentTimeMillis() + 10 * 60_000L, label, math, "snooze", tone, shake)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         h.removeCallbacksAndMessages(null) // второй звонок не должен обрываться таймером первого
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("ring", "Звонок", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) })
@@ -131,6 +138,24 @@ class AlarmService : Service() {
             .setContentTitle(label.ifBlank { "Будильник" }).setContentText("Нажми, чтобы выключить")
             .setCategory(Notification.CATEGORY_ALARM).setFullScreenIntent(pi, true).setContentIntent(pi).setOngoing(true).build()
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        // Отдельное обычное уведомление для часов Wear OS: постоянное (ongoing) они обычно не пересылают
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("watch", "Часы", NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(null, null); enableVibration(true); vibrationPattern = longArrayOf(0, 500, 250, 500)
+        })
+        fun watchAction(a: String, title: String) = Notification.Action.Builder(
+            android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_lock_idle_alarm), title,
+            PendingIntent.getService(this, if (a == "stop") 11 else 12,
+                Intent(this, AlarmService::class.java).setAction(a).putExtra("label", label).putExtra("math", math)
+                    .putExtra("tone", tone).putExtra("vib", shake),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).build()
+        val wn = Notification.Builder(this, "watch").setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(label.ifBlank { "Будильник" }).setContentText("Звонит").setCategory(Notification.CATEGORY_ALARM)
+            .setContentIntent(pi).apply {
+                if (!math) addAction(watchAction("stop", "Выключить"))
+                if (kind != "timer") addAction(watchAction("snooze", "Отложить"))
+            }.build()
+        nm.notify(2, wn)
         try { startActivity(ring) } catch (_: Exception) {}
         play(tone, shake)
         h.postDelayed({ stopSelf() }, 10 * 60_000L)
@@ -164,6 +189,7 @@ class AlarmService : Service() {
     override fun onDestroy() {
         h.removeCallbacksAndMessages(null); mp?.release(); vib?.cancel()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(2)
         super.onDestroy()
     }
 }
