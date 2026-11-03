@@ -1,0 +1,7 @@
+<resources>
+    <color name="ic_bg">#FF08090C</color>
+    <color name="win">#FF0B1424</color>
+    <style name="Theme.App" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/win</item>
+    </style>
+</resources>
